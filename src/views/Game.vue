@@ -26,7 +26,8 @@
 			<div class="end-modal">
 				<h2>玩法说明</h2>
 				<div class="intro-text">
-					<p>现在进入到正式的实验环节，在屏幕上你会看到三个人物进行传球游戏。</p>
+					<p v-if="!trainingMode">现在进入到正式的实验环节，在屏幕上你会看到三个人物进行传球游戏。</p>
+					<p v-else>现在进入练习环节，在屏幕上你会看到三个人物进行传球游戏。</p>
 					<ul>
 						<li>屏幕底部的人物是你自己。</li>
 						<li>另外两个人物是在其它房间进行实验的另外两个人。</li>
@@ -38,7 +39,7 @@
 			</div>
 		</div>
 		<!-- 加载提示 -->
-		<div v-if="showLoading" class="end-overlay">
+		<div v-if="showLoading && !trainingMode" class="end-overlay">
 			<div class="end-modal">
 				<h2>正在等待其他玩家准备中……</h2>
 				<div class="loading-wrap">
@@ -203,7 +204,12 @@ export default {
 				this.$store.getters.playerName || this.player.name[0];
 			this.player.hue = this.$store.getters.playerHue || this.player.hue;
 			this.player.gray = this.$store.getters.playerGray || this.player.gray;
-
+			// 应用玩家数量配置（来自 Store），合法范围 3-9
+			const sNum = Number(this.$store.getters.playerNum);
+			if (!Number.isNaN(sNum) && sNum >= 3 && sNum <= 9) {
+				this.player.num = sNum;
+				this.player.numInput = sNum;
+			}
 		},
 		scoreCounter(idx) {
 			if (this.gameOver) return;
@@ -342,10 +348,15 @@ export default {
 			return candidates[r];
 		},
 		applyAIIdentityForThree() {
-			// 当为3人局时，固定AI的名字
+			// 当为3人局时，根据模式设置 AI 的名字
 			if (Number(this.player.num) === 3) {
-				this.player.name[1] = "王佳琪";
-				this.player.name[2] = "刘明宇";
+				if (this.trainingMode) {
+					this.player.name[1] = "player1";
+					this.player.name[2] = "player2";
+				} else {
+					this.player.name[1] = "王佳琪";
+					this.player.name[2] = "刘明宇";
+				}
 			}
 		},
 		getBallDx(idx) {
@@ -552,11 +563,14 @@ export default {
 		},
 		async startGame() {
 			this.showIntro = false;
-			// 不再向路由追加 limit，避免在链接中暴露；限制值从 localStorage/Store/初始化中获取
-			this.showLoading = true;
-			// 等待其他玩家准备中，按配置等待秒数
-			await Utils.sleep(this.waitSeconds * 1000);
-			this.showLoading = false;
+			// 训练模式不显示等待页；正式模式按配置等待
+			if (!this.trainingMode) {
+				this.showLoading = true;
+				await Utils.sleep(this.waitSeconds * 1000);
+				this.showLoading = false;
+			} else {
+				this.showLoading = false;
+			}
 			// 若玩家组件尚未就绪，延后设置初始持球（不计接球）
 			if (this.player.refs[0]) {
 				this.setBallPos(0);
@@ -594,7 +608,10 @@ export default {
 		// 等 DOM/refs 就绪后计算顶端玩家上限
 		this.$nextTick(() => {
 			this.initTopPlayerLimit();
-			this.applyAIIdentityForThree();
+			// 训练模式由路由或 store 控制：?mode=training 或 store.getters.trainingMode === true
+			this.trainingMode =
+				(this.$route?.query?.mode === 'training') ||
+				(this.$store?.getters?.trainingMode === true);
 			// 等待时间配置：?wait=秒 或 store.getters.waitSeconds
 			const qWait = Number(this.$route?.query?.wait);
 			const sWait = Number(this.$store?.getters?.waitSeconds);
@@ -603,10 +620,7 @@ export default {
 			} else if (!Number.isNaN(sWait) && sWait > 0) {
 				this.waitSeconds = sWait;
 			}
-			// 训练模式由路由或 store 控制：?mode=training 或 store.getters.trainingMode === true
-			this.trainingMode =
-				(this.$route?.query?.mode === 'training') ||
-				(this.$store?.getters?.trainingMode === true);
+			this.applyAIIdentityForThree();
 		});
 	},
 	beforeUpdate() {
