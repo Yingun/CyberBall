@@ -26,6 +26,11 @@
 			<div class="end-modal">
 				<h2>游戏结束</h2>
 				<p>{{ endMsg }}</p>
+				<div class="survey-placeholder">
+					<!-- 问卷星链接占位：将 surveyUrl 设置为你的问卷地址即可显示按钮 -->
+					<a v-if="surveyUrl" :href="surveyUrl" target="_blank" rel="noopener">参与问卷</a>
+					<span v-else>问卷链接占位</span>
+				</div>
 				<NavButton destination="/" text="返回" />
 			</div>
 		</div>
@@ -71,6 +76,8 @@ export default {
 			topPlayerLimit: null,
 			endMsg: "",
 			trainingMode: false,
+			// 结束面板问卷链接占位，后续可设置为问卷星链接
+			surveyUrl: "https://www.baidu.com",
 			player: {
 				num: 4,
 				numInput: 4,
@@ -129,7 +136,15 @@ export default {
 			];
 
 			for (let i = 1; i < this.player.num; i++) {
-				newList.push(getStyleStr(Math.random() * 360, Math.random() * 100, 0));
+				if (Number(this.player.num) === 3 && i === 1) {
+					// 小明：蓝色（增强着色：先sepia再高饱和度，再转色相，略调亮度与对比）
+					newList.push(`filter: sepia(1) saturate(12) hue-rotate(190deg) brightness(0.95) contrast(1.15) grayscale(0%); transition:0s linear`);
+				} else if (Number(this.player.num) === 3 && i === 2) {
+					// 小红：粉色（增强着色：先sepia再高饱和度，再转色相，略调亮度与对比）
+					newList.push(`filter: sepia(1) saturate(12) hue-rotate(330deg) brightness(1.0) contrast(1.10) grayscale(0%); transition:0s linear`);
+				} else {
+					newList.push(getStyleStr(Math.random() * 360, Math.random() * 100, 0));
+				}
 			}
 
 			return newList;
@@ -156,21 +171,21 @@ export default {
 				this.$store.getters.playerName || this.player.name[0];
 			this.player.hue = this.$store.getters.playerHue || this.player.hue;
 			this.player.gray = this.$store.getters.playerGray || this.player.gray;
-			this.player.num = this.$store.getters.playerNum || this.player.num;
+			this.player.num = Number(this.$store.getters.playerNum) || this.player.num;
 		},
 		scoreCounter(idx) {
 			if (this.gameOver) return;
+			// 训练模式：仅计数，不做限制
+			if (this.trainingMode) {
+				this.score.throwCounts++;
+				this.score.playerCounts[idx]++;
+				return;
+			}
+			// 限制模式：正常计数，命中30即结束（getReceptorId已做保底，确保到30时玩家达标）
 			this.score.throwCounts++;
 			this.score.playerCounts[idx]++;
-			// 训练模式：不做任何限制
-			if (this.trainingMode) return;
-			// 检查结束条件：需要同时满足「总传球数达到上限」与「玩家(你)接球达到上限」
 			const hitTotalLimit = this.score.throwCounts >= this.totalPassLimit;
-			const hitPlayerLimit =
-				this.topPlayerIdx === 0 &&
-				this.topPlayerLimit !== null &&
-				this.score.playerCounts[0] >= this.topPlayerLimit;
-			if (hitTotalLimit && hitPlayerLimit) {
+			if (hitTotalLimit) {
 				this.gameOver = true;
 				this.ball.moveDur = 0;
 				this.endMsg = `总传球数：${this.score.throwCounts}/${this.totalPassLimit}；你的接球数：${this.score.playerCounts[0]}`;
@@ -239,19 +254,33 @@ export default {
 
 		getReceptorId(ballOwnerIdx) {
 			// 根据当前的ball.owner，返回目标的ball.receptor的id。
-			// 当玩家(你)已达接球上限后，AI 不再选择玩家(0)为接收者
+			// 策略：
+			// 1) 玩家(你)达上限后：AI 不再选择玩家(0)
+			// 2) 玩家未达上限且剩余可计数传球不足以喂满玩家时：优先把球传给玩家(0)，确保到第30次时一定满足玩家上限
 			const n = this.player.num;
 			let candidates = [];
 			for (let i = 0; i < n; i++) {
 				if (i === ballOwnerIdx) continue; // 不能传给自己
 				candidates.push(i);
 			}
+			if (this.trainingMode) {
+				const r = Math.floor(Math.random() * candidates.length);
+				return candidates[r];
+			}
 			const playerLimitReached =
 				this.topPlayerIdx === 0 &&
 				this.topPlayerLimit !== null &&
 				this.score.playerCounts[0] >= this.topPlayerLimit;
-			if (!this.trainingMode && playerLimitReached) {
+			if (playerLimitReached) {
 				candidates = candidates.filter((i) => i !== 0);
+			} else {
+				// 未达上限：检查“保底”条件
+				const remainingTotal = this.totalPassLimit - this.score.throwCounts; // 含本次之后还剩多少可计数传球
+				const remainingToPlayer = this.topPlayerLimit - this.score.playerCounts[0];
+				// 若剩余可计数传球数不足以喂满玩家，则本次AI强制传给玩家(0)
+				if (remainingTotal <= remainingToPlayer && candidates.includes(0)) {
+					return 0;
+				}
 			}
 			// 兜底：若意外为空，回退为除自己外的任意目标
 			if (candidates.length === 0) {
@@ -261,6 +290,13 @@ export default {
 			}
 			const r = Math.floor(Math.random() * candidates.length);
 			return candidates[r];
+		},
+		applyAIIdentityForThree() {
+			// 当为3人局时，固定AI的名字
+			if (Number(this.player.num) === 3) {
+				this.player.name[1] = "小红";
+				this.player.name[2] = "小明";
+			}
 		},
 		getBallDx(idx) {
 			let dx = BALL_DX;
@@ -333,7 +369,9 @@ export default {
 		initTopPlayerLimit() {
 			try {
 				this.topPlayerIdx = 0;
-				this.topPlayerLimit = Math.random() < 0.5 ? 3 : 10;
+				// 按当前时间秒数决定：偶数秒=10，奇数秒=3
+				const even = (new Date().getSeconds() % 2 === 0);
+				this.topPlayerLimit = even ? 10 : 3;
 			} catch (e) {
 				console.warn("initTopPlayerLimit failed", e);
 				this.topPlayerIdx = 0;
@@ -361,6 +399,7 @@ export default {
 		// 等 DOM/refs 就绪后计算顶端玩家上限
 		this.$nextTick(() => {
 			this.initTopPlayerLimit();
+			this.applyAIIdentityForThree();
 			// 训练模式由路由或 store 控制：?mode=training 或 store.getters.trainingMode === true
 			this.trainingMode =
 				(this.$route?.query?.mode === 'training') ||
@@ -396,6 +435,20 @@ export default {
 	min-width: 260px;
 	text-align: center;
 	box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+.survey-placeholder{
+	margin-top:12px;
+}
+.survey-placeholder a{
+	display:inline-block;
+	padding:8px 14px;
+	border-radius:8px;
+	background:#1677ff;
+	color:#fff;
+	text-decoration:none;
+}
+.survey-placeholder a:hover{
+	background:#145fd1;
 }
 .end-modal button {
 	margin-top: 12px;
