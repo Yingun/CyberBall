@@ -1,7 +1,7 @@
 function usePlayer() {
   const player = reactive({
-    num: 4,
-    numInput: 4,
+    num: 3,
+    numInput: 3,
     turnDur: 0.5,
     filter: "sepia(1) saturate(20)",
     hue: 180,

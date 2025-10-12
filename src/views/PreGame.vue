@@ -67,8 +67,8 @@ export default {
 			playerName: "player",
 			playerHue: 180,
 			playerGray: 0,
-			playerNumInput: 4,
-			playerNum: 4,
+			playerNumInput: 3,
+			playerNum: 3,
 			isStore: false,
 		};
 	},

@@ -13,7 +13,7 @@
 					:isLeftWard="player.isLeftWard[idx]"
 					:title="`分数：${score.playerCounts[idx]}`"
 					@moveBall="onThrowBall(idx)"
-					@playerLoaded="idx===0?throwBall(0, 0):null"
+					@playerLoaded="onPlayerLoaded(idx)"
 				/>
 			</div>
 		</div>
@@ -21,6 +21,32 @@
 		<Ball :posx="ball.pos[0]" :posy="ball.pos[1]" :moveDur="ball.moveDur" />
 
 		<ScoreBoard :throwNum="score.throwCounts" :score="scoreRank" />
+		<!-- 开始前提示 -->
+		<div v-if="showIntro" class="end-overlay">
+			<div class="end-modal">
+				<h2>玩法说明</h2>
+				<div class="intro-text">
+					<p>现在进入到正式的实验环节，在屏幕上你会看到三个人物进行传球游戏。</p>
+					<ul>
+						<li>屏幕底部的人物是你自己。</li>
+						<li>另外两个人物是在其它房间进行实验的另外两个人。</li>
+						<li>你们之间会互相进行传球，每一次你可以选择将球传给其中一人。</li>
+					</ul>
+					<p>准备好了请点击“进入游戏”。</p>
+				</div>
+				<button @click="startGame">进入游戏</button>
+			</div>
+		</div>
+		<!-- 加载提示 -->
+		<div v-if="showLoading" class="end-overlay">
+			<div class="end-modal">
+				<h2>正在等待其他玩家准备中……</h2>
+				<div class="loading-wrap">
+					<div class="loading-spinner"></div>
+					<div class="loading-text">请稍候，游戏即将开始</div>
+				</div>
+			</div>
+		</div>
 		<!-- 结束模态框 -->
 		<div v-if="gameOver" class="end-overlay">
 			<div class="end-modal">
@@ -51,7 +77,8 @@ import Utils from "../utils/index.js";
 const fontSize = 16;
 const BALL_DX = 67;
 const BALL_DY = 5;
-const AI_DELAY_T = 2000;
+const AI_DELAY_MIN = 1000; // 1s
+const AI_DELAY_MAX = 5000; // 5s
 const cacheVals = {
 	playerPos: {},
 };
@@ -74,13 +101,18 @@ export default {
 			totalPassLimit: 30,
 			topPlayerIdx: null,
 			topPlayerLimit: null,
+			topPlayerSchedule: [],
+			lastPlayer0Throw: null,
 			endMsg: "",
 			trainingMode: false,
+			showIntro: true,
+			showLoading: false,
+			waitSeconds: 6,
 			// 结束面板问卷链接占位，后续可设置为问卷星链接
 			surveyUrl: "https://www.baidu.com",
 			player: {
-				num: 4,
-				numInput: 4,
+				num: 3,
+				numInput: 3,
 				turnDur: 0,
 				filter: "sepia(1) saturate(20)",
 				hue: 180,
@@ -171,7 +203,7 @@ export default {
 				this.$store.getters.playerName || this.player.name[0];
 			this.player.hue = this.$store.getters.playerHue || this.player.hue;
 			this.player.gray = this.$store.getters.playerGray || this.player.gray;
-			this.player.num = Number(this.$store.getters.playerNum) || this.player.num;
+
 		},
 		scoreCounter(idx) {
 			if (this.gameOver) return;
@@ -179,11 +211,27 @@ export default {
 			if (this.trainingMode) {
 				this.score.throwCounts++;
 				this.score.playerCounts[idx]++;
+				if (idx === 0) {
+					// 若命中计划中的接球时机，则消耗一项
+					if (Array.isArray(this.topPlayerSchedule) && this.topPlayerSchedule.length > 0 && this.topPlayerSchedule[0] === this.score.throwCounts) {
+						this.topPlayerSchedule.shift();
+					}
+					// 记录玩家0上次接球发生在第几次传球
+					this.lastPlayer0Throw = this.score.throwCounts;
+				}
 				return;
 			}
 			// 限制模式：正常计数，命中30即结束（getReceptorId已做保底，确保到30时玩家达标）
 			this.score.throwCounts++;
 			this.score.playerCounts[idx]++;
+			if (idx === 0) {
+				// 若命中计划中的接球时机，则消耗一项
+				if (Array.isArray(this.topPlayerSchedule) && this.topPlayerSchedule.length > 0 && this.topPlayerSchedule[0] === this.score.throwCounts) {
+					this.topPlayerSchedule.shift();
+				}
+				// 记录玩家0上次接球发生在第几次传球
+				this.lastPlayer0Throw = this.score.throwCounts;
+			}
 			const hitTotalLimit = this.score.throwCounts >= this.totalPassLimit;
 			if (hitTotalLimit) {
 				this.gameOver = true;
@@ -253,36 +301,38 @@ export default {
 		},
 
 		getReceptorId(ballOwnerIdx) {
-			// 根据当前的ball.owner，返回目标的ball.receptor的id。
-			// 策略：
-			// 1) 玩家(你)达上限后：AI 不再选择玩家(0)
-			// 2) 玩家未达上限且剩余可计数传球不足以喂满玩家时：优先把球传给玩家(0)，确保到第30次时一定满足玩家上限
+			// 计划驱动的均匀分配：在指定轮次把球传给玩家(0)，非计划轮次不传给玩家(0)
 			const n = this.player.num;
 			let candidates = [];
 			for (let i = 0; i < n; i++) {
 				if (i === ballOwnerIdx) continue; // 不能传给自己
 				candidates.push(i);
 			}
+			// 训练模式：完全随机
 			if (this.trainingMode) {
 				const r = Math.floor(Math.random() * candidates.length);
 				return candidates[r];
 			}
+			// 限制模式：按计划控制玩家0的接球时机
 			const playerLimitReached =
 				this.topPlayerIdx === 0 &&
 				this.topPlayerLimit !== null &&
 				this.score.playerCounts[0] >= this.topPlayerLimit;
+			const nextThrow = this.score.throwCounts + 1;
+			const hasSchedule = Array.isArray(this.topPlayerSchedule) && this.topPlayerSchedule.length > 0;
+
 			if (playerLimitReached) {
 				candidates = candidates.filter((i) => i !== 0);
-			} else {
-				// 未达上限：检查“保底”条件
-				const remainingTotal = this.totalPassLimit - this.score.throwCounts; // 含本次之后还剩多少可计数传球
-				const remainingToPlayer = this.topPlayerLimit - this.score.playerCounts[0];
-				// 若剩余可计数传球数不足以喂满玩家，则本次AI强制传给玩家(0)
-				if (remainingTotal <= remainingToPlayer && candidates.includes(0)) {
+			} else if (hasSchedule) {
+				// 在计划指定轮次，且当前持球者不是玩家(0)，强制将球传给玩家(0)
+				if (ballOwnerIdx !== 0 && candidates.includes(0) && this.topPlayerSchedule[0] === nextThrow) {
 					return 0;
 				}
+				// 非计划轮次时，避免把球传给玩家(0)
+				candidates = candidates.filter((i) => i !== 0);
 			}
-			// 兜底：若意外为空，回退为除自己外的任意目标
+
+			// 兜底：若候选为空，回退为除自己外的任意目标
 			if (candidates.length === 0) {
 				for (let i = 0; i < n; i++) {
 					if (i !== ballOwnerIdx) candidates.push(i);
@@ -294,8 +344,8 @@ export default {
 		applyAIIdentityForThree() {
 			// 当为3人局时，固定AI的名字
 			if (Number(this.player.num) === 3) {
-				this.player.name[1] = "小红";
-				this.player.name[2] = "小明";
+				this.player.name[1] = "王佳琪";
+				this.player.name[2] = "刘明宇";
 			}
 		},
 		getBallDx(idx) {
@@ -316,7 +366,9 @@ export default {
 		async aiThrowBall() {
 			if (this.gameOver) return;
 			const receptorId = this.getReceptorId(this.ball.owner);
-			await Utils.sleep(AI_DELAY_T);
+			// 电脑操控玩家随机延迟 1-5 秒再传球
+			const delay = AI_DELAY_MIN + Math.floor(Math.random() * (AI_DELAY_MAX - AI_DELAY_MIN + 1));
+			await Utils.sleep(delay);
 			if (this.gameOver) return;
 			this.throwBall(receptorId);
 		},
@@ -369,13 +421,155 @@ export default {
 		initTopPlayerLimit() {
 			try {
 				this.topPlayerIdx = 0;
-				// 按当前时间秒数决定：偶数秒=10，奇数秒=3
-				const even = (new Date().getSeconds() % 2 === 0);
-				this.topPlayerLimit = even ? 10 : 3;
+				// 读取限制：支持隐蔽别名与编码（优先 search，再 hash）
+				const searchParams = new URLSearchParams(window.location.search || "");
+				const getLimitFromParams = (paramsObj) => {
+					// 优先顺序：cfg, k, limit
+					const keys = ["cfg", "k", "limit"];
+					let val = null;
+					for (const key of keys) {
+						const v = paramsObj.get ? paramsObj.get(key) : paramsObj[key];
+						if (v !== undefined && v !== null) { val = v; break; }
+					}
+					if (val === null) return NaN;
+					const s = String(val).toLowerCase();
+					if (s === "a" || s === "alpha") return 3;
+					if (s === "b" || s === "beta") return 10;
+					const n = Number(s);
+					return Number.isNaN(n) ? NaN : n;
+				};
+				const searchLimit = getLimitFromParams(searchParams);
+				// 哈希路由参数（this.$route.query），也支持别名
+				const qParams = this.$route?.query || {};
+				const qLimit = getLimitFromParams({
+					get: (k) => qParams[k]
+				});
+				// 本地持久化与 Store 备选
+				const lsLimit = Number(localStorage.getItem("cb_topPlayerLimit"));
+				const sLimit = Number(this.$store?.getters?.topPlayerLimit);
+				let limit;
+				if (!Number.isNaN(searchLimit) && searchLimit > 0) {
+					limit = searchLimit;
+				} else if (!Number.isNaN(qLimit) && qLimit > 0) {
+					limit = qLimit;
+				} else if (!Number.isNaN(lsLimit) && lsLimit > 0) {
+					limit = lsLimit;
+				} else if (!Number.isNaN(sLimit) && sLimit > 0) {
+					limit = sLimit;
+				} else {
+					limit = 10;
+				}
+				// 仅支持 3 或 10，其它值回退为默认 10
+				this.topPlayerLimit = (limit === 3 || limit === 10) ? limit : 10;
+				// 持久化到 localStorage（不修改 URL）
+				localStorage.setItem("cb_topPlayerLimit", String(this.topPlayerLimit));
 			} catch (e) {
 				console.warn("initTopPlayerLimit failed", e);
 				this.topPlayerIdx = 0;
-				this.topPlayerLimit = 3;
+				this.topPlayerLimit = 10;
+				localStorage.setItem("cb_topPlayerLimit", "10");
+			} finally {
+				// 初始化均匀分布计划（根据 totalPassLimit 与 topPlayerLimit）
+				this.topPlayerSchedule = this.buildEvenSchedule(this.totalPassLimit, this.topPlayerLimit);
+			}
+		},
+		buildEvenSchedule(total, count) {
+			// 随机且尽量均匀的分布生成：
+			// 1) 以等间距目标为基础加随机抖动
+			// 2) 排序并强制单调递增 + 最小间距约束
+			// 3) 超出边界时回退分配，保持整体均匀性
+			try {
+				if (!count || count <= 0) return [];
+				// 仅支持 3 或 10（若出现其它值，仍可运行该均匀策略）
+				const n = count;
+				// 理想等间距目标（使用 (i*(total+1))/(n+1) 使分布更居中）
+				const targets = [];
+				for (let i = 1; i <= n; i++) {
+					targets.push((i * (total + 1)) / (n + 1));
+				}
+				// 抖动强度：相对于平均间隔的 35%
+				const avgGap = total / (n + 1);
+				const jitterRange = Math.max(1, Math.floor(avgGap * 0.35));
+				let positions = targets.map(t => {
+					const jitter = Math.floor((Math.random() * 2 - 1) * jitterRange); // [-jitterRange, +jitterRange]
+					const p = Math.round(t + jitter);
+					return Math.min(Math.max(p, 1), total);
+				});
+				// 排序
+				positions.sort((a, b) => a - b);
+				// 最小间距约束（相对于平均间距的 40%）
+				const minGap = Math.max(1, Math.floor(avgGap * 0.4));
+				const adjusted = [];
+				for (let i = 0; i < n; i++) {
+					let p = positions[i];
+					if (i === 0) {
+						// 预留后续空间，避免过早贴近末端
+						const maxStart = total - (n - 1) * minGap;
+						p = Math.min(p, Math.max(1, maxStart));
+					} else {
+						p = Math.max(p, adjusted[i - 1] + minGap);
+					}
+					adjusted.push(p);
+				}
+				// 若末尾超界，向前回退分配
+				let overflow = adjusted[n - 1] - total;
+				if (overflow > 0) {
+					for (let i = n - 1; i >= 0 && overflow > 0; i--) {
+						// 当前项可回退的空间：不破坏与前一项的最小间距
+						const prev = i > 0 ? adjusted[i - 1] : 0;
+						const minAllowed = (i === 0) ? 1 : (prev + minGap);
+						const movable = Math.max(0, adjusted[i] - minAllowed);
+						if (movable > 0) {
+							const shift = Math.min(movable, overflow);
+							adjusted[i] -= shift;
+							overflow -= shift;
+						}
+					}
+				}
+				// 最终边界与去重保护
+				for (let i = 0; i < n; i++) {
+					if (i === 0) {
+						adjusted[i] = Math.min(Math.max(adjusted[i], 1), total - (n - 1) * minGap);
+					} else {
+						adjusted[i] = Math.min(Math.max(adjusted[i], adjusted[i - 1] + minGap), total - (n - 1 - i) * minGap);
+					}
+				}
+				return adjusted.map(v => Math.round(v));
+			} catch (e) {
+				console.warn("buildEvenSchedule failed", e);
+				return [];
+			}
+		},
+		onPlayerLoaded(idx) {
+			if (idx === 0) {
+				if (!this.showIntro) {
+					// 初始持球：仅设置位置与持有者，不计一次接球
+					this.setBallPos(0);
+					this.ball.owner = 0;
+					this.ball.moveDur = 0;
+				}
+			}
+		},
+		async startGame() {
+			this.showIntro = false;
+			// 不再向路由追加 limit，避免在链接中暴露；限制值从 localStorage/Store/初始化中获取
+			this.showLoading = true;
+			// 等待其他玩家准备中，按配置等待秒数
+			await Utils.sleep(this.waitSeconds * 1000);
+			this.showLoading = false;
+			// 若玩家组件尚未就绪，延后设置初始持球（不计接球）
+			if (this.player.refs[0]) {
+				this.setBallPos(0);
+				this.ball.owner = 0;
+				this.ball.moveDur = 0;
+			} else {
+				this.$nextTick(() => {
+					if (!this.gameOver) {
+						this.setBallPos(0);
+						this.ball.owner = 0;
+						this.ball.moveDur = 0;
+					}
+				});
 			}
 		},
 		restartGame() {
@@ -390,6 +584,7 @@ export default {
 			this.ball.owner = undefined;
 			this.resetBallPos();
 			cacheVals.playerPos = {};
+			this.lastPlayer0Throw = null;
 			this.initTopPlayerLimit();
 		},
 	},
@@ -400,6 +595,14 @@ export default {
 		this.$nextTick(() => {
 			this.initTopPlayerLimit();
 			this.applyAIIdentityForThree();
+			// 等待时间配置：?wait=秒 或 store.getters.waitSeconds
+			const qWait = Number(this.$route?.query?.wait);
+			const sWait = Number(this.$store?.getters?.waitSeconds);
+			if (!Number.isNaN(qWait) && qWait > 0) {
+				this.waitSeconds = qWait;
+			} else if (!Number.isNaN(sWait) && sWait > 0) {
+				this.waitSeconds = sWait;
+			}
 			// 训练模式由路由或 store 控制：?mode=training 或 store.getters.trainingMode === true
 			this.trainingMode =
 				(this.$route?.query?.mode === 'training') ||
@@ -461,5 +664,42 @@ export default {
 }
 .end-modal button:hover {
 	background: #237233;
+}
+.intro-text {
+	text-align: left;
+	font-size: 18px;
+	line-height: 1.6;
+}
+.intro-text ul {
+	margin: 10px 0 0 18px;
+	padding: 0;
+}
+.intro-text li {
+	margin-bottom: 6px;
+}
+.intro-text p {
+	margin: 8px 0;
+}
+.loading-wrap {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	margin-top: 8px;
+}
+.loading-spinner {
+	width: 36px;
+	height: 36px;
+	border: 4px solid #e0e0e0;
+	border-top-color: #1677ff;
+	border-radius: 50%;
+	animation: spin 1s linear infinite;
+}
+@keyframes spin {
+	to { transform: rotate(360deg); }
+}
+.loading-text {
+	font-size: 16px;
+	color: #555;
 }
 </style>
