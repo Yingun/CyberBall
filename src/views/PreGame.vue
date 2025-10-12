@@ -39,10 +39,7 @@
 				请选择玩家数量：
 				<input type="number" v-model="playerNumInput" min="3" max="9" />
 			</label>
-			<div>
-				<input type="checkbox" id="cbox1" v-model="isStore" />
-				<label for="cbox1">记住我的选项</label>
-			</div>
+
 			<div>
 				<button @click="onSummit">开始游戏</button>
 			</div>
