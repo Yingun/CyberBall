@@ -3,7 +3,7 @@
 		<img class="ball-ani" src="../images/ball.png" />
 		<div class="menu">
 			<h1>CyberBall</h1>
-			<NavButton destination="/game" text="训练模式" />
+			<NavButton destination="/game?mode=training" text="训练模式" />
 			<NavButton destination="/ready" text="游戏选项" />
 		</div>
 		<img class="ball-ani" src="../images/ball.png" />

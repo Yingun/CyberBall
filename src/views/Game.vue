@@ -21,6 +21,14 @@
 		<Ball :posx="ball.pos[0]" :posy="ball.pos[1]" :moveDur="ball.moveDur" />
 
 		<ScoreBoard :throwNum="score.throwCounts" :score="scoreRank" />
+		<!-- 结束模态框 -->
+		<div v-if="gameOver" class="end-overlay">
+			<div class="end-modal">
+				<h2>游戏结束</h2>
+				<p>{{ endMsg }}</p>
+				<NavButton destination="/" text="返回" />
+			</div>
+		</div>
 
 		<div id="menu-btn">
 			<NavButton destination="/" text="返回" />
@@ -56,6 +64,13 @@ export default {
 				throwCounts: 0,
 				playerCounts: [0, 0, 0, 0, 0, 0, 0, 0, 0],
 			},
+			// 游戏结束与限制相关
+			gameOver: false,
+			totalPassLimit: 30,
+			topPlayerIdx: null,
+			topPlayerLimit: null,
+			endMsg: "",
+			trainingMode: false,
 			player: {
 				num: 4,
 				numInput: 4,
@@ -144,8 +159,22 @@ export default {
 			this.player.num = this.$store.getters.playerNum || this.player.num;
 		},
 		scoreCounter(idx) {
+			if (this.gameOver) return;
 			this.score.throwCounts++;
 			this.score.playerCounts[idx]++;
+			// 训练模式：不做任何限制
+			if (this.trainingMode) return;
+			// 检查结束条件：需要同时满足「总传球数达到上限」与「玩家(你)接球达到上限」
+			const hitTotalLimit = this.score.throwCounts >= this.totalPassLimit;
+			const hitPlayerLimit =
+				this.topPlayerIdx === 0 &&
+				this.topPlayerLimit !== null &&
+				this.score.playerCounts[0] >= this.topPlayerLimit;
+			if (hitTotalLimit && hitPlayerLimit) {
+				this.gameOver = true;
+				this.ball.moveDur = 0;
+				this.endMsg = `总传球数：${this.score.throwCounts}/${this.totalPassLimit}；你的接球数：${this.score.playerCounts[0]}`;
+			}
 		},
 		watchWindowResize() {
 			//监听窗口大小的改变，以更新球的位置
@@ -210,24 +239,28 @@ export default {
 
 		getReceptorId(ballOwnerIdx) {
 			// 根据当前的ball.owner，返回目标的ball.receptor的id。
-			// [step1]初始化preferenceMatrix 【n*n】 (0,0) (0,1) ... 对角线为0，第0行表示从player出发的（可以忽略）
-			const preferenceMatrix = ((n) => {
-				const matrix = [];
+			// 当玩家(你)已达接球上限后，AI 不再选择玩家(0)为接收者
+			const n = this.player.num;
+			let candidates = [];
+			for (let i = 0; i < n; i++) {
+				if (i === ballOwnerIdx) continue; // 不能传给自己
+				candidates.push(i);
+			}
+			const playerLimitReached =
+				this.topPlayerIdx === 0 &&
+				this.topPlayerLimit !== null &&
+				this.score.playerCounts[0] >= this.topPlayerLimit;
+			if (!this.trainingMode && playerLimitReached) {
+				candidates = candidates.filter((i) => i !== 0);
+			}
+			// 兜底：若意外为空，回退为除自己外的任意目标
+			if (candidates.length === 0) {
 				for (let i = 0; i < n; i++) {
-					matrix.push([]);
-					for (let j = 0; j < n; j++) {
-						if (i == j) {
-							matrix[i].push(0);
-						} else {
-							matrix[i].push(1 / (n - 1));
-						}
-					}
+					if (i !== ballOwnerIdx) candidates.push(i);
 				}
-				return matrix;
-			})(this.player.num);
-
-			// [step2]根据概率判断。第i名玩家的选择概率为 preferenceMatrix[i]
-			return Utils.getRandomIdx(preferenceMatrix[ballOwnerIdx]);
+			}
+			const r = Math.floor(Math.random() * candidates.length);
+			return candidates[r];
 		},
 		getBallDx(idx) {
 			let dx = BALL_DX;
@@ -245,17 +278,21 @@ export default {
 			}
 		},
 		async aiThrowBall() {
+			if (this.gameOver) return;
 			const receptorId = this.getReceptorId(this.ball.owner);
 			await Utils.sleep(AI_DELAY_T);
+			if (this.gameOver) return;
 			this.throwBall(receptorId);
 		},
 		throwBall(receptorId = 0, ballMoveDur = 0.5) {
 			// 把球从一个玩家扔到另一个玩家手中
+			if (this.gameOver) return "game over";
 			this.ball.moveDur = ballMoveDur;
 			if (receptorId == this.ball.owner) return "don't need to move the ball";
 			this.setBallPos(receptorId);
 			this.ball.owner = receptorId;
 			this.scoreCounter(receptorId);
+			if (this.gameOver) return "game over";
 
 			// 如果球到其他玩家手中，执行一个判断...
 			if (this.ball.owner > 0) {
@@ -292,10 +329,43 @@ export default {
 			this.ball.moveDur = moveDur;
 			this.ball.pos[0] += dx / (window.innerWidth / 100);
 		},
+		// 仅限制玩家本人（index=0），AI 不受限制
+		initTopPlayerLimit() {
+			try {
+				this.topPlayerIdx = 0;
+				this.topPlayerLimit = Math.random() < 0.5 ? 3 : 10;
+			} catch (e) {
+				console.warn("initTopPlayerLimit failed", e);
+				this.topPlayerIdx = 0;
+				this.topPlayerLimit = 3;
+			}
+		},
+		restartGame() {
+			// 重置分数与状态，并重新生成玩家接球上限
+			this.gameOver = false;
+			this.endMsg = "";
+			this.score.throwCounts = 0;
+			for (let i = 0; i < this.score.playerCounts.length; i++) {
+				this.score.playerCounts[i] = 0;
+			}
+			this.ball.moveDur = 0;
+			this.ball.owner = undefined;
+			this.resetBallPos();
+			cacheVals.playerPos = {};
+			this.initTopPlayerLimit();
+		},
 	},
 	mounted() {
 		this.loadConfigs();
 		this.watchWindowResize();
+		// 等 DOM/refs 就绪后计算顶端玩家上限
+		this.$nextTick(() => {
+			this.initTopPlayerLimit();
+			// 训练模式由路由或 store 控制：?mode=training 或 store.getters.trainingMode === true
+			this.trainingMode =
+				(this.$route?.query?.mode === 'training') ||
+				(this.$store?.getters?.trainingMode === true);
+		});
 	},
 	beforeUpdate() {
 		this.player.refs = [];
@@ -309,5 +379,34 @@ export default {
 	grid-template-columns: 1fr 1fr 1fr 1fr;
 	grid-template-rows: 1fr 1fr 1fr;
 	align-items: center;
+}
+.end-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0,0,0,0.5);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 999;
+}
+.end-modal {
+	background: #fff;
+	padding: 20px 24px;
+	border-radius: 12px;
+	min-width: 260px;
+	text-align: center;
+	box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+.end-modal button {
+	margin-top: 12px;
+	padding: 8px 14px;
+	border: none;
+	border-radius: 8px;
+	background: #2b8a3e;
+	color: #fff;
+	cursor: pointer;
+}
+.end-modal button:hover {
+	background: #237233;
 }
 </style>

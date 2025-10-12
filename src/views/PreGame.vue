@@ -117,7 +117,7 @@ export default {
 		onSummit() {
 			if (!this.checkNameInput() && this.checkPlayerNum()) {
 				this.saveConfigs();
-				this.$router.push("/game");
+				this.$router.push("/game?mode=game");
 			}
 		},
 	},
