@@ -24,7 +24,7 @@
 		<!-- 开始前提示 -->
 		<div v-if="showIntro" class="end-overlay">
 			<div class="end-modal">
-				<h2>玩法说明</h2>
+				<h2>玩法说明</h2>  
 				<div class="intro-text">
 					<p v-if="!trainingMode">现在进入到正式的实验环节，在屏幕上你会看到三个人物进行传球游戏 </p>
 					<p v-else>现在进入练习环节，在屏幕上你会看到三个人物进行传球游戏 </p>
