@@ -375,10 +375,16 @@ export default {
 				candidates = candidates.filter((i) => i !== 0);
 				console.log(`[DEBUG] 玩家0已达上限 ${this.topPlayerLimit}，排除玩家0`);
 			} else if (hasSchedule) {
-				// 在计划指定轮次，且当前持球者不是玩家(0)，强制将球传给玩家(0)
-				if (ballOwnerIdx !== 0 && candidates.includes(0) && this.topPlayerSchedule[0] === nextThrow) {
-					console.log(`[DEBUG] 命中计划轮次 ${nextThrow}，强制传给玩家0`);
-					return 0;
+				// 在计划指定轮次，强制将球传给玩家(0)（除非球已经在玩家0手中）
+				if (this.topPlayerSchedule[0] === nextThrow) {
+					if (ballOwnerIdx === 0) {
+						// 球已在玩家0手中，跳过此计划项，传给其他人
+						console.log(`[DEBUG] 计划轮次 ${nextThrow} 球已在玩家0手中，跳过计划项`);
+						this.topPlayerSchedule.shift(); // 立即消耗计划项
+					} else if (candidates.includes(0)) {
+						console.log(`[DEBUG] 命中计划轮次 ${nextThrow}，强制传给玩家0`);
+						return 0;
+					}
 				}
 				// 非计划轮次时，避免把球传给玩家(0)
 				candidates = candidates.filter((i) => i !== 0);
