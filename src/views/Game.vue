@@ -96,8 +96,12 @@ import Utils from "../utils/index.js";
 const fontSize = 16;
 const BALL_DX = 67;
 const BALL_DY = 5;
-const AI_DELAY_MIN = 1000; // 1s
-const AI_DELAY_MAX = 5000; // 5s
+// 正式模式AI延迟时间
+const AI_DELAY_MIN_FORMAL = 1000; // 1s
+const AI_DELAY_MAX_FORMAL = 5000; // 5s
+// 训练模式AI延迟时间
+const AI_DELAY_MIN_TRAINING = 1000; // 1s
+const AI_DELAY_MAX_TRAINING = 2000; // 2s
 const cacheVals = {
 	playerPos: {},
 };
@@ -435,8 +439,18 @@ export default {
 		async aiThrowBall() {
 			if (this.gameOver) return;
 			const receptorId = this.getReceptorId(this.ball.owner);
-			// 电脑操控玩家随机延迟 1-5 秒再传球
-			const delay = AI_DELAY_MIN + Math.floor(Math.random() * (AI_DELAY_MAX - AI_DELAY_MIN + 1));
+			// 根据模式设置不同的AI延迟时间
+			let delayMin, delayMax;
+			if (this.trainingMode) {
+				// 训练模式：1-2秒
+				delayMin = AI_DELAY_MIN_TRAINING;
+				delayMax = AI_DELAY_MAX_TRAINING;
+			} else {
+				// 正式模式：1-5秒
+				delayMin = AI_DELAY_MIN_FORMAL;
+				delayMax = AI_DELAY_MAX_FORMAL;
+			}
+			const delay = delayMin + Math.floor(Math.random() * (delayMax - delayMin + 1));
 			await Utils.sleep(delay);
 			if (this.gameOver) return;
 			this.throwBall(receptorId);
