@@ -76,18 +76,19 @@ export default {
 	},
 	methods: {
 		saveConfigs() {
-			this.$store.commit("setLocalStorage", this.isStore);
-			this.$store.commit("setPlayerName", this.playerName);
-			this.$store.commit("setPlayerHue", this.playerHue);
-			this.$store.commit("setPlayerGray", this.playerGray);
-			this.$store.commit("setPlayerNum", this.playerNum);
+			// 不再持久化到本地/Store，改为通过路由参数传递
+			const q = new URLSearchParams({
+				mode: "game",
+				name: String(this.playerName || ""),
+				hue: String(this.playerHue),
+				gray: String(this.playerGray),
+				num: String(this.playerNum),
+			}).toString();
+			this.$router.push(`/game?${q}`);
 		},
 		loadConfigs() {
-			this.isStore = this.$store.getters.isSave;
-			this.playerName = this.$store.getters.playerName || this.playerName;
-			this.playerHue = this.$store.getters.playerHue || this.playerHue;
-			this.playerGray = this.$store.getters.playerGray || this.playerGray;
-			this.playerNumInput = this.$store.getters.playerNum || this.playerNum;
+			// 不从本地/Store读取，使用默认初值
+			this.isStore = false;
 			this.playerNum = this.playerNumInput;
 		},
 		checkNameInput() {
@@ -113,12 +114,17 @@ export default {
 		},
 		onSummit() {
 			if (!this.checkNameInput() && this.checkPlayerNum()) {
+				// 仅保留带参数的跳转，避免覆盖昵称等信息
 				this.saveConfigs();
-				this.$router.push("/game?mode=game");
 			}
 		},
 	},
 	mounted() {
+		// 清空本地持久化数据，避免刷新后沿用旧信息
+		try {
+			const keys = ["playerName","playerHue","playerGray","playerNum","isSave","cb_topPlayerLimit"];
+			keys.forEach(k => localStorage.removeItem(k));
+		} catch(e) {}
 		this.loadConfigs();
 	},
 	updated() {
