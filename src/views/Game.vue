@@ -381,13 +381,16 @@ export default {
 						// 球已在玩家0手中，跳过此计划项，传给其他人
 						console.log(`[DEBUG] 计划轮次 ${nextThrow} 球已在玩家0手中，跳过计划项`);
 						this.topPlayerSchedule.shift(); // 立即消耗计划项
+						// 继续执行非计划轮次的逻辑，避免传给玩家0
+						candidates = candidates.filter((i) => i !== 0);
 					} else if (candidates.includes(0)) {
 						console.log(`[DEBUG] 命中计划轮次 ${nextThrow}，强制传给玩家0`);
 						return 0;
 					}
+				} else {
+					// 非计划轮次时，避免把球传给玩家(0)
+					candidates = candidates.filter((i) => i !== 0);
 				}
-				// 非计划轮次时，避免把球传给玩家(0)
-				candidates = candidates.filter((i) => i !== 0);
 			}
 
 
