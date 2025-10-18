@@ -267,9 +267,12 @@ export default {
 			this.score.throwCounts++;
 			this.score.playerCounts[idx]++;
 			if (idx === 0) {
-				// 若命中计划中的接球时机，则消耗一项
+				// 若命中计划中的接球时机，则消耗一项（注意：计划基于传球次数，已经+1）
 				if (Array.isArray(this.topPlayerSchedule) && this.topPlayerSchedule.length > 0 && this.topPlayerSchedule[0] === this.score.throwCounts) {
+					console.log(`[DEBUG] 消耗计划项：第${this.score.throwCounts}次传球，玩家0接球成功`);
 					this.topPlayerSchedule.shift();
+				} else {
+					console.log(`[DEBUG] 意外接球：第${this.score.throwCounts}次传球，玩家0接球但不在计划中`);
 				}
 				// 记录玩家0上次接球发生在第几次传球
 				this.lastPlayer0Throw = this.score.throwCounts;
@@ -363,16 +366,25 @@ export default {
 			const nextThrow = this.score.throwCounts + 1;
 			const hasSchedule = Array.isArray(this.topPlayerSchedule) && this.topPlayerSchedule.length > 0;
 
+			// 调试信息
+			if (!this.trainingMode && hasSchedule) {
+				console.log(`[DEBUG] 传球 ${this.score.throwCounts} -> ${nextThrow}, 计划: [${this.topPlayerSchedule.join(',')}], 玩家0已接球: ${this.score.playerCounts[0]}/${this.topPlayerLimit}`);
+			}
+
 			if (playerLimitReached) {
 				candidates = candidates.filter((i) => i !== 0);
+				console.log(`[DEBUG] 玩家0已达上限 ${this.topPlayerLimit}，排除玩家0`);
 			} else if (hasSchedule) {
 				// 在计划指定轮次，且当前持球者不是玩家(0)，强制将球传给玩家(0)
 				if (ballOwnerIdx !== 0 && candidates.includes(0) && this.topPlayerSchedule[0] === nextThrow) {
+					console.log(`[DEBUG] 命中计划轮次 ${nextThrow}，强制传给玩家0`);
 					return 0;
 				}
 				// 非计划轮次时，避免把球传给玩家(0)
 				candidates = candidates.filter((i) => i !== 0);
 			}
+
+
 
 			// 兜底：若候选为空，回退为除自己外的任意目标
 			if (candidates.length === 0) {
@@ -469,6 +481,8 @@ export default {
 		initTopPlayerLimit() {
 			try {
 				this.topPlayerIdx = 0;
+				console.log(`[DEBUG] initTopPlayerLimit 开始，URL: ${window.location.href}`);
+				
 				// 读取限制：支持隐蔽别名与编码（优先 search，再 hash），不使用本地持久化
 				const searchParams = new URLSearchParams(window.location.search || "");
 				const getLimitFromParams = (paramsObj) => {
@@ -478,6 +492,7 @@ export default {
 						const v = paramsObj.get ? paramsObj.get(key) : paramsObj[key];
 						if (v !== undefined && v !== null) { val = v; break; }
 					}
+					console.log(`[DEBUG] getLimitFromParams 解析结果: val=${val}`);
 					if (val === null) return NaN;
 					const s = String(val).toLowerCase();
 					// 仅接受 a/alpha => 3，b/beta => 10，或数值严格等于 3/10；其它一律视为无效
@@ -490,9 +505,13 @@ export default {
 				const searchLimit = getLimitFromParams(searchParams);
 				const qParams = this.$route?.query || {};
 				const qLimit = getLimitFromParams({ get: (k) => qParams[k] });
+				console.log(`[DEBUG] searchLimit=${searchLimit}, qLimit=${qLimit}`);
+				
 				let limit;
 				// 若链接中明确包含 cfg=b，则无条件固定为 10
 				const hasCfgB = /(^|\?|&)\s*cfg=b(\b|&|$)/i.test(window.location.search || "");
+				console.log(`[DEBUG] hasCfgB=${hasCfgB}`);
+				
 				if (hasCfgB) {
 					limit = 10;
 				} else if (!Number.isNaN(searchLimit) && searchLimit > 0) {
@@ -502,7 +521,9 @@ export default {
 				} else {
 					limit = 10;
 				}
+				console.log(`[DEBUG] 最终解析 limit=${limit}`);
 				this.topPlayerLimit = hasCfgB ? 10 : ((limit === 3 || limit === 10) ? limit : 10);
+				console.log(`[DEBUG] 设置 topPlayerLimit=${this.topPlayerLimit}`);
 				// 映射问卷链接
 				const surveyMap = {
 					3: "https://www.wjx.cn/vm/w3u3XJs.aspx",
@@ -515,6 +536,7 @@ export default {
 				this.topPlayerLimit = 10;
 			} finally {
 				this.topPlayerSchedule = this.buildEvenSchedule(this.totalPassLimit, this.topPlayerLimit);
+				console.log(`[DEBUG] 生成计划：总传球${this.totalPassLimit}，玩家0目标${this.topPlayerLimit}次，计划时机: [${this.topPlayerSchedule.join(',')}]`);
 			}
 		},
 		buildEvenSchedule(total, count) {
@@ -709,21 +731,27 @@ export default {
 			this.initTopPlayerLimit();
 			// 强制规则：若链接含正式配置参数（cfg/k/limit），则始终为正式模式（trainingMode=false）
 			// 仅当显式传入 ?mode=training 时，才进入训练模式
-			const searchParams = new URLSearchParams(window.location.search || "");
-			const hasFormalCfg =
-				searchParams.get("cfg") !== null ||
-				searchParams.get("k") !== null ||
-				searchParams.get("limit") !== null ||
-				(this.$route?.query?.cfg ?? null) !== null ||
-				(this.$route?.query?.k ?? null) !== null ||
-				(this.$route?.query?.limit ?? null) !== null;
+			// 优先检查是否显式指定训练模式
+			const isTrainingMode = (this.$route?.query?.mode === 'training');
+			console.log(`[DEBUG] 路由参数 mode=${this.$route?.query?.mode}, isTrainingMode=${isTrainingMode}`);
 			
-			if (hasFormalCfg) {
-				// 有正式配置参数，强制为正式模式
-				this.trainingMode = false;
+			if (isTrainingMode) {
+				// 显式训练模式，强制设为训练模式
+				this.trainingMode = true;
+				console.log(`[DEBUG] 设置为训练模式`);
 			} else {
-				// 无正式配置，仅当显式指定 mode=training 时才为训练模式
-				this.trainingMode = (this.$route?.query?.mode === 'training');
+				// 非训练模式，检查是否有正式配置参数
+				const searchParams = new URLSearchParams(window.location.search || "");
+				const hasFormalCfg =
+					searchParams.get("cfg") !== null ||
+					searchParams.get("k") !== null ||
+					searchParams.get("limit") !== null ||
+					(this.$route?.query?.cfg ?? null) !== null ||
+					(this.$route?.query?.k ?? null) !== null ||
+					(this.$route?.query?.limit ?? null) !== null;
+				
+				this.trainingMode = false;
+				console.log(`[DEBUG] 设置为正式模式, hasFormalCfg=${hasFormalCfg}`);
 			}
 			// 等待时间配置：?wait=秒 或 store.getters.waitSeconds
 			const qWait = Number(this.$route?.query?.wait);
