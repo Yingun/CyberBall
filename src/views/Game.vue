@@ -61,7 +61,7 @@
 					</div>
 					<div class="loading-text">
 						<span v-if="showAlmostStart">玩家已就绪，正在进入…</span>
-						<span v-else>请稍候，游戏即将开始（约剩余 {{ loadingRemaining }} 秒）</span>
+						<span v-else>请稍候，游戏即将开始…</span>
 					</div>
 				</div>
 			</div>
