@@ -480,10 +480,12 @@ export default {
 					}
 					if (val === null) return NaN;
 					const s = String(val).toLowerCase();
+					// 仅接受 a/alpha => 3，b/beta => 10，或数值严格等于 3/10；其它一律视为无效
 					if (s === "a" || s === "alpha") return 3;
 					if (s === "b" || s === "beta") return 10;
 					const n = Number(s);
-					return Number.isNaN(n) ? NaN : n;
+					if (Number.isNaN(n)) return NaN;
+					return (n === 3 || n === 10) ? n : NaN;
 				};
 				const searchLimit = getLimitFromParams(searchParams);
 				const qParams = this.$route?.query || {};
