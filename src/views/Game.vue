@@ -707,10 +707,24 @@ export default {
 		// 等 DOM/refs 就绪后计算顶端玩家上限
 		this.$nextTick(() => {
 			this.initTopPlayerLimit();
-			// 训练模式由路由或 store 控制：?mode=training 或 store.getters.trainingMode === true
-			this.trainingMode =
-				(this.$route?.query?.mode === 'training') ||
-				(this.$store?.getters?.trainingMode === true);
+			// 强制规则：若链接含正式配置参数（cfg/k/limit），则始终为正式模式（trainingMode=false）
+			// 仅当显式传入 ?mode=training 时，才进入训练模式
+			const searchParams = new URLSearchParams(window.location.search || "");
+			const hasFormalCfg =
+				searchParams.get("cfg") !== null ||
+				searchParams.get("k") !== null ||
+				searchParams.get("limit") !== null ||
+				(this.$route?.query?.cfg ?? null) !== null ||
+				(this.$route?.query?.k ?? null) !== null ||
+				(this.$route?.query?.limit ?? null) !== null;
+			
+			if (hasFormalCfg) {
+				// 有正式配置参数，强制为正式模式
+				this.trainingMode = false;
+			} else {
+				// 无正式配置，仅当显式指定 mode=training 时才为训练模式
+				this.trainingMode = (this.$route?.query?.mode === 'training');
+			}
 			// 等待时间配置：?wait=秒 或 store.getters.waitSeconds
 			const qWait = Number(this.$route?.query?.wait);
 			const sWait = Number(this.$store?.getters?.waitSeconds);
