@@ -609,7 +609,20 @@ export default {
 						adjusted[i] = Math.min(Math.max(adjusted[i], adjusted[i - 1] + minGap), total - (n - 1 - i) * minGap);
 					}
 				}
-				return adjusted.map(v => Math.round(v));
+				// 后处理：消除连续计划轮次
+			const finalSchedule = adjusted.map(v => Math.round(v));
+			for (let i = 1; i < finalSchedule.length; i++) {
+				if (finalSchedule[i] === finalSchedule[i-1] + 1) {
+					// 发现连续，将当前项+1
+					finalSchedule[i] = finalSchedule[i] + 1;
+					// 确保不超过总传球数
+					if (finalSchedule[i] > total) {
+						finalSchedule[i] = total;
+					}
+				}
+			}
+			
+			return finalSchedule;
 			} catch (e) {
 				console.warn("buildEvenSchedule failed", e);
 				return [];
