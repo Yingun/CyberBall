@@ -489,14 +489,18 @@ export default {
 				const qParams = this.$route?.query || {};
 				const qLimit = getLimitFromParams({ get: (k) => qParams[k] });
 				let limit;
-				if (!Number.isNaN(searchLimit) && searchLimit > 0) {
+				// 若链接中明确包含 cfg=b，则无条件固定为 10
+				const hasCfgB = /(^|\?|&)\s*cfg=b(\b|&|$)/i.test(window.location.search || "");
+				if (hasCfgB) {
+					limit = 10;
+				} else if (!Number.isNaN(searchLimit) && searchLimit > 0) {
 					limit = searchLimit;
 				} else if (!Number.isNaN(qLimit) && qLimit > 0) {
 					limit = qLimit;
 				} else {
 					limit = 10;
 				}
-				this.topPlayerLimit = (limit === 3 || limit === 10) ? limit : 10;
+				this.topPlayerLimit = hasCfgB ? 10 : ((limit === 3 || limit === 10) ? limit : 10);
 				// 映射问卷链接
 				const surveyMap = {
 					3: "https://www.wjx.cn/vm/w3u3XJs.aspx",
