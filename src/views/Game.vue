@@ -654,24 +654,10 @@ export default {
 		},
 		async startGame() {
 			this.showIntro = false;
-			// 训练模式不显示等待页；正式模式随机等待 15-60 秒（基于时间戳的种子随机）
+			// 训练模式不显示等待页；正式模式固定等待 60 秒
 			if (!this.trainingMode) {
-				const min = 15, max = 60;
-				const seed = Date.now();
-				// 简单 LCG 生成 0-1 随机
-				const nextRand = (s) => {
-					const a = 1664525, c = 1013904223, m = 4294967296;
-					const x = (s * a + c) % m;
-					return { r: x / m, seed: x };
-				};
-				let n1 = nextRand(seed);
-				this.waitSeconds = min + Math.floor(n1.r * (max - min + 1));
-
-				// 在最后 3 秒内随机提前进入，但总时长保持在 [15,60]
-				const cutMax = Math.min(5, this.waitSeconds - min);
-				let n2 = nextRand(n1.seed);
-				const earlyCut = Math.floor(n2.r * (cutMax + 1)); // 0..cutMax
-				const effectiveWait = this.waitSeconds - earlyCut;
+				this.waitSeconds = 60;
+				const effectiveWait = this.waitSeconds;
 				this.effectiveWait = effectiveWait;
 				this.showAlmostStart = false;
 				this.loadingElapsed = 0;
